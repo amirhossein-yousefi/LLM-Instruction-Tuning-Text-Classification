@@ -1,0 +1,13 @@
+# Core
+transformers>=4.41.0
+trl>=0.9.6
+accelerate>=0.30.0
+bitsandbytes>=0.43.0
+peft>=0.11.0
+
+# Data / metrics
+datasets>=2.19.0
+pandas>=2.0.0
+scikit-learn>=1.2.0
+tqdm>=4.64.0
+numpy>=1.24.0

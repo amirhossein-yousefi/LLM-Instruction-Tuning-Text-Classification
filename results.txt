@@ -1,0 +1,25 @@
+Predict: 100%|██████████| 1970/1970 [05:07<00:00,  6.41it/s]
+Accuracy:   0.938
+F1 (micro): 0.938
+F1 (macro): 0.950
+
+Per-class report:
+              precision    recall  f1-score   support
+
+       cs.CL      0.914     0.963     0.938       432
+       cs.CV      0.935     0.923     0.929       545
+       cs.LG      0.917     0.890     0.903       536
+      hep-ph      0.994     0.988     0.991       164
+    quant-ph      0.986     0.990     0.988       293
+
+    accuracy                          0.938      1970
+   macro avg      0.949     0.951     0.950      1970
+weighted avg      0.938     0.938     0.938      1970
+
+
+Confusion matrix (rows = true, cols = pred):
+[[416   6  10   0   0]
+ [ 12 503  30   0   0]
+ [ 27  29 477   0   3]
+ [  0   0   1 162   1]
+ [  0   0   2   1 290]]
