@@ -1,0 +1,16 @@
+[project]
+name = "llm-instruction-tuning-text-classification-project"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "accelerate>=0.30.0",
+    "bitsandbytes>=0.43.0",
+    "datasets>=2.19.0",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "peft>=0.11.0",
+    "scikit-learn>=1.2.0",
+    "tqdm>=4.64.0",
+    "transformers>=4.41.0",
+    "trl>=0.9.6",
+]
