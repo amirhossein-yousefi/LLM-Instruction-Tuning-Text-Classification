@@ -144,6 +144,131 @@ export HF_TOKEN=YOUR_HF_ACCESS_TOKEN
 
 ---
 
+---
+
+## ⚡ Use `uv` for dependency management (recommended)
+
+[`uv`](https://docs.astral.sh/uv/) is a fast, modern Python package & project manager from Astral (creators of Ruff). It is a drop‑in replacement for most `pip` workflows, with first‑class virtualenvs, lockfiles, and reproducible installs.
+
+> This repository currently ships a standard **`requirements.txt`** (see project root). You can continue using `pip`, **or** follow these `uv` steps for a faster and more reproducible setup.
+
+### 1) Install `uv`
+
+**macOS / Linux**
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Windows (PowerShell)**
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+> Alternatives: `brew install uv` (macOS), `winget install --id=astral-sh.uv -e` (Windows), or `pipx install uv`.
+
+### 2) Create the virtual environment
+
+`uv` defaults to a project‑local `.venv` and will automatically discover and use it.
+
+```bash
+uv venv                 # creates .venv (optionally: uv venv --python 3.11)
+# optional activation (uv will find .venv even if you skip this)
+source .venv/bin/activate        # macOS/Linux
+# or on Windows PowerShell
+# .\.venv\Scripts\Activate.ps1
+```
+
+### 3) Install dependencies from `requirements.txt`
+
+Two equivalent ways, depending on how strict you want to be:
+
+- **Exact, reproducible environment** (removes anything not listed):  
+  ```bash
+  uv pip sync requirements.txt
+  ```
+- **Flexible install** (keeps extra packages if already present):  
+  ```bash
+  uv pip install -r requirements.txt
+  ```
+
+> If you later add a package and want it pinned into `requirements.txt`, see **Step 4**.
+
+### 4) (Optional) Lock or upgrade dependencies
+
+If you maintain a `requirements.in` or a `pyproject.toml`, use `uv` to **compile** a fully pinned `requirements.txt`:
+
+```bash
+# from a pyproject.toml
+uv pip compile pyproject.toml -o requirements.txt
+
+# from a requirements.in
+uv pip compile requirements.in -o requirements.txt
+
+# upgrade a single package during compile
+uv pip compile - -o requirements.txt --upgrade-package ruff <<< "ruff"
+```
+
+Re‑apply the lock to your environment at any time with:
+```bash
+uv pip sync requirements.txt
+```
+
+### 5) (Optional) Migrate to `pyproject.toml` + `uv.lock`
+
+For first‑class, cross‑platform locking you can move to a `uv` project with a `pyproject.toml` + `uv.lock`:
+
+```bash
+# initialize a minimal project in the current directory
+uv init --bare
+
+# import everything from your existing requirements.txt
+uv add -r requirements.txt
+
+# (uv will resolve + write uv.lock and sync .venv automatically)
+# manually refresh the lockfile later if needed
+uv lock
+
+# install/update the environment from the lockfile
+uv sync
+```
+
+Commit **`pyproject.toml`** and **`uv.lock`** to version control.  
+If you still need a `requirements.txt` for external tooling, export it from the lockfile:
+
+```bash
+# export exact, pinned requirements
+uv export --format requirements-txt --no-hashes > requirements.txt
+```
+
+### 6) CI example (GitHub Actions)
+
+```yaml
+# .github/workflows/ci.yml
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Set up venv + install deps
+        run: |
+          uv venv --python 3.11
+          uv pip sync requirements.txt
+      - name: Run tests / scripts
+        run: |
+          source .venv/bin/activate
+          # python -m pytest
+          # or: python scripts/train.py ...
+```
+
+> **Tip:** `uv` can download a specific Python if missing (e.g., `uv venv --python 3.11`). It will still work fine with a system Python if one is available.
+
+---
 ## 🏃‍♀️ Quickstart: Train
 
 The simplest run trains LoRA adapters on your CSVs and saves them to an output folder:
