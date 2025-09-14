@@ -45,6 +45,13 @@ LLM-Instruction-Tuning-Text-Classification/
 │   ├── metrics.py         # accuracy/F1, classification report, confusion matrix
 │   ├── prepare_all_arxiver_data.py
 │   └── prepare_top_5_arxiver_data.py
+├──sagemaker/
+│   ├── train_sm.py            # launches a SageMaker training job (uses scripts/train.py)
+│   ├── deploy_sm.py           # deploys a real-time endpoint from the training artifact
+│   ├── invoke_sm.py           # convenience client to call the endpoint
+│   └── inference/
+│       ├── inference.py       # custom model_fn/input_fn/predict_fn/output_fn
+│       └── requirements.txt   # peft + bitsandbytes for loading LoRA in 4‑bit
 ├── requirements.txt
 ├── .gitignore
 └── results.txt            # sample evaluation output
@@ -393,6 +400,11 @@ The confusion matrix (rows = true, cols = predicted) reveals strong diagonal dom
 - **quant-ph:** Near perfect classification with only 3 misclassifications  
 
 ---
+## 🚀 Key Takeaways
+
+- Exceptional performance in **hep-ph** and **quant-ph** categories (> 98% F1).  
+- Consistently strong results across **cs.CL, cs.CV, and cs.LG**, demonstrating the model’s generalization power.  
+- Balanced **macro and weighted averages** confirm fairness across classes.
 
 
 ## TL;DR – Key Hyperparameters
@@ -506,11 +518,6 @@ trainer.train()
 > Be sure to pass `max_seq_length` to the trainer (as above) if you want to enforce the value in this README.
 
 
-## 🚀 Key Takeaways
-
-- Exceptional performance in **hep-ph** and **quant-ph** categories (> 98% F1).  
-- Consistently strong results across **cs.CL, cs.CV, and cs.LG**, demonstrating the model’s generalization power.  
-- Balanced **macro and weighted averages** confirm fairness across classes.
 
 ---
 
@@ -543,6 +550,133 @@ trainer.train()
 - Provide one or more **text fields** with `--text_fields title abstract body ...`
 - Consider increasing **LoRA rank** (`lora_r`) and **alpha** for tougher tasks
 - Increase **context length** (`max_seq_length`) if your texts are long
+
+---
+
+
+
+# SageMaker: Training, Deployment & Inference for *LLM‑Instruction‑Tuning‑Text‑Classification*
+
+The `sagemaker`  folder adds **Amazon SageMaker** support to the repository so you can:
+- run managed **training** (with TRL + LoRA/QLoRA as implemented in `scripts/train.py`),
+- **deploy** the trained LoRA adapters as a real‑time endpoint,
+- and **invoke** the endpoint for label prediction.
+
+> The original project trains a decoder‑only LLM (default: `meta-llama/Llama-3.2-1B`) for instruction‑style **text classification** using PEFT/LoRA and 4‑bit quantization (QLoRA‑style) with TRL’s `SFTTrainer`【Repo】.
+
+---
+
+## Prerequisites
+
+1. **AWS account & credentials** with permission to use SageMaker, S3, ECR and to create endpoints.
+2. A **SageMaker execution role** ARN (or run from **SageMaker Studio/Notebook** so `get_execution_role()` works).
+3. **Dataset** prepared as CSVs: `train.csv`, `validation.csv`, `test.csv` under a directory (e.g., `dataset/`), with a `label_name` column and text columns such as `title`, `abstract` (these map to the repo’s expected format). See the repo README for details【Repo】.
+4. (If your base model is gated) a **Hugging Face token** (`HF_TOKEN`).
+
+> **GPU requirement:** this project uses 4‑bit quantization via `bitsandbytes`. The library supports NVIDIA GPUs with Compute Capability ≥ **5.0** and CUDA 11.0‑12.8【bitsandbytes-install】【hf-bnb】.
+
+---
+
+## Choose DLC images (containers)
+
+We rely on the official **Hugging Face Deep Learning Containers (DLCs)** for training and inference. As of Sept 2025, examples include:
+
+- **Training (GPU):**  
+  `763104351884.dkr.ecr.<region>.amazonaws.com/huggingface-pytorch-training:2.5.1-transformers4.49.0-gpu-py311-cu124-ubuntu22.04`
+- **Inference (GPU):**  
+  `763104351884.dkr.ecr.<region>.amazonaws.com/huggingface-pytorch-inference:2.6.0-transformers4.51.3-gpu-py312-cu124-ubuntu22.04`
+
+See the “Available DLCs on AWS” page for up‑to‑date tags and region/account specifics【dlcs】. You can pass an explicit `--image_uri` if you want to pin the exact image.
+
+---
+
+## 1) Train on SageMaker
+
+From the **repo root** (which contains `scripts/train.py` and `requirements.txt`):
+
+```bash
+python sagemaker/train_sm.py   --source_dir .   --dataset_dir dataset   --train_file train.csv   --val_file validation.csv   --test_file test.csv   --label_column label_name   --text_fields title abstract   --base_model_id meta-llama/Llama-3.2-1B   --instance_type ml.g5.2xlarge   --instance_count 1   --transformers_version 4.49.0   --pytorch_version 2.5.1   --py_version py311
+# optionally: --hf_token YOUR_HF_TOKEN --job_name my-lora-job --extra_hparams '{"epochs": 3}'
+```
+
+**What the script does**
+
+- Uploads your `dataset/` folder to S3.
+- Starts a training job from this repo’s `scripts/train.py` inside the HF DLC (the container auto‑installs `requirements.txt` from the source_dir).  
+- Sets `--output_dir /opt/ml/model` so the **LoRA adapter + tokenizer** are captured as model artifacts.  
+- On completion, prints and writes a small `*-training-metadata.json` containing the model artifact S3 URI.
+
+> Reference: SageMaker Hugging Face Estimator (how it runs your script & resolves DLCs)【sdk-hf】 and the training guide【hf-train】. Requirements in `source_dir` are installed automatically【sdk-reqs】.
+
+---
+
+## 2) Deploy a real‑time endpoint
+
+```bash
+python sagemaker/deploy_sm.py   --training_job_name <your-training-job>   --base_model_id meta-llama/Llama-3.2-1B   --instance_type ml.g5.2xlarge   --default_labels_json '["cs.CL","cs.CV","cs.LG","hep-ph","quant-ph"]'
+# or use --model_artifact_s3 s3://.../model.tar.gz instead of --training_job_name
+# optionally: --hf_token YOUR_HF_TOKEN --image_uri <DLC URI> --endpoint_name my-endpoint
+```
+
+This creates a **HuggingFaceModel** with our `inference.py` and deploys it on a GPU instance. The custom handler:
+
+- loads the **base model** (optionally in 4‑bit NF4 via bitsandbytes),
+- attaches the **LoRA adapters** saved by training,
+- constructs the **classification prompt** used in this repo, and
+- decodes the generated label back to one of the allowed strings.
+
+> The handler implements `model_fn`, `input_fn`, `predict_fn`, and `output_fn` per the **Hugging Face Inference Toolkit** conventions【hf-itk-doc】【hf-itk-gh】.
+
+---
+
+## 3) Invoke the endpoint
+
+```bash
+python sagemaker/invoke_sm.py   --endpoint_name <your-endpoint>   --text "Quantum entanglement in photonics"   --labels '["cs.CL","cs.CV","cs.LG","hep-ph","quant-ph"]'
+```
+
+**Request JSON schema**
+
+```json
+{
+  "text": "string or list of strings",
+  "labels": ["label_a", "label_b", "..."]
+}
+```
+
+**Response**
+
+```json
+{"predictions": ["quant-ph"], "labels": ["cs.CL","cs.CV","cs.LG","hep-ph","quant-ph"]}
+```
+
+Environment knobs (set at endpoint deployment):
+
+- `BASE_MODEL_ID` (default: `meta-llama/Llama-3.2-1B`)
+- `USE_4BIT` (`true`/`false`, default `true`)
+- `DEFAULT_LABELS` (JSON list; used if requests omit `labels`)
+- `PROMPT_TEMPLATE` (override the default prompt)
+- `MAX_NEW_TOKENS` (default 8), `TEMPERATURE` (default 0.0), `NUM_BEAMS` (default 1)
+
+---
+
+## Tips & Troubleshooting
+
+- **Gated base models (e.g., Llama)** – pass `--hf_token` during training and deployment so the containers can download from the Hub【hf-token】.
+- **bitsandbytes warnings** – ensure your instance GPU is compatible; `g5`/`g4dn` are fine; `p3` also works for 4‑bit, though fast Int8 matmul prefers CC ≥ 7.5【bitsandbytes-install】.
+- **Artifacts location** – SageMaker only packages `/opt/ml/model`. That’s why the training wrapper sets `--output_dir /opt/ml/model`.
+- **Dependencies** – if you need extra Python packages for inference, add them to `sagemaker/inference/requirements.txt`. The HF inference DLC installs them when the endpoint boots【hf-itk-doc】.
+- **Container versions** – prefer pinning an explicit `--image_uri` from the DLC catalog for reproducibility【dlcs】.
+
+---
+
+## Clean up
+
+```bash
+aws sagemaker delete-endpoint --endpoint-name <your-endpoint>
+aws sagemaker delete-endpoint-config --endpoint-config-name <name from console/SDK>
+aws sagemaker delete-model --model-name <name from console/SDK>
+```
 
 ---
 

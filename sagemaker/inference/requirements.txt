@@ -1,0 +1,3 @@
+# These are installed into the Hugging Face inference DLC at endpoint start
+peft>=0.15.0
+bitsandbytes>=0.43.0
